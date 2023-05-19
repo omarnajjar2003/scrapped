@@ -1,0 +1,77 @@
+%%cu
+#include <stdio.h>
+#include <stdlib.h>
+#include <cuda_runtime.h>
+
+__global__ void MatrixMulKernel(float* M, float* N, float* P, int Mrows, int Mcols, int Ncols) {
+    int row = blockIdx.y * blockDim.y + threadIdx.y;
+    int col = blockIdx.x * blockDim.x + threadIdx.x;
+
+    if ((row < Mrows) && (col < Ncols)) {
+        float Pvalue = 0;
+
+        for (int k = 0; k < Mcols; ++k) {
+            Pvalue += M[row * Mcols + k] * N[k * Ncols + col];
+        }
+
+        P[row * Ncols + col] = Pvalue;
+    }
+}
+
+void initializeMatrix(float* matrix, int rows, int cols) {
+    for (int i = 0; i < rows; ++i) {
+        for (int j = 0; j < cols; ++j) {
+            matrix[i * cols + j] = rand() % 10;
+        }
+    }
+}
+
+int main() {
+    int num_rows_M = 600; 
+    int num_cols_M = 600; 
+    int num_cols_N = 600; 
+
+    float *M, *N, *P;
+    M = (float*)malloc(num_rows_M * num_cols_M * sizeof(float));
+    N = (float*)malloc(num_cols_M * num_cols_N * sizeof(float));
+    P = (float*)malloc(num_rows_M * num_cols_N * sizeof(float));
+    
+    initializeMatrix(M, num_rows_M, num_cols_M);
+    initializeMatrix(N, num_cols_M, num_cols_N);
+
+    float *d_M, *d_N, *d_P;
+    cudaMalloc(&d_M, num_rows_M * num_cols_M * sizeof(float));
+    cudaMalloc(&d_N, num_cols_M * num_cols_N * sizeof(float));
+    cudaMalloc(&d_P, num_rows_M * num_cols_N * sizeof(float));
+
+    cudaMemcpy(d_M, M, num_rows_M * num_cols_M * sizeof(float), cudaMemcpyHostToDevice);
+    cudaMemcpy(d_N, N, num_cols_M * num_cols_N * sizeof(float), cudaMemcpyHostToDevice);
+
+    dim3 block_size(16, 16);
+    dim3 grid_size((num_cols_N + block_size.x - 1) / block_size.x, (num_rows_M + block_size.y - 1) / block_size.y);
+
+    float elapsed_time;
+    cudaEvent_t start, end;
+
+    cudaEventCreate(&start);
+    cudaEventCreate(&end);
+    cudaEventRecord(start);
+
+    MatrixMulKernel<<<grid_size, block_size>>>(d_M, d_N, d_P, num_rows_M, num_cols_M, num_cols_N);
+
+    cudaEventRecord(end);
+    cudaEventSynchronize(end);
+    cudaEventElapsedTime(&elapsed_time, start, end);
+
+    cudaMemcpy(P, d_P, num_rows_M * num_cols_N * sizeof(float), cudaMemcpyDeviceToHost);
+
+    printf("Elapsed Time: %.8lf milliseconds\n", elapsed_time);
+
+    free(M);
+    free(N);
+    free(P);
+    cudaFree(d_M);
+    cudaFree(d_N);
+    cudaFree(d_P);
+    return 0;
+}
